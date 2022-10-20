@@ -2,7 +2,7 @@
 % Please edit documentation in R/joint_PAF.R
 \name{print.SAF_summary}
 \alias{print.SAF_summary}
-\title{Print out SAF_summary object}
+\title{Print out a SAF_summary object}
 \usage{
 \method{print}{SAF_summary}(x, ...)
 }
@@ -15,7 +15,7 @@
 No return value.  Prints the SAF_summary object to the console.
 }
 \description{
-Print out SAF_summary object
+Print out a SAF_summary object
 }
 \examples{
 library(splines)
@@ -35,7 +35,13 @@ parent_occupational.exposure, parent_y)
 node_vec <- c("urban.rural","smoking.category","occupational.exposure", "y")
 model_list=automatic_fit(data=Hordaland_data, parent_list=parent_list,
  node_vec=node_vec, prev=.09)
-out <- average_paf(data=Hordaland_data, model_list=model_list,
+# model_list$data objects have fitting weights
+# included in data frame
+# Including weight column in data
+# necessary if Bootstrapping CIs
+out <- average_paf(data=model_list[[length(model_list)]]$data,
+model_list=model_list,
 parent_list=parent_list, node_vec=node_vec, prev=.09, nperm=10,
 vars = c("urban.rural","occupational.exposure"),ci=FALSE)
+print(out)
 }

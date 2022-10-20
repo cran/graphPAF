@@ -2,7 +2,7 @@
 % Please edit documentation in R/joint_PAF.R
 \name{seq_paf}
 \alias{seq_paf}
-\title{Calculation of Sequential paf taking into account risk factor sequencing}
+\title{Calculation of sequential paf taking into account risk factor sequencing}
 \usage{
 seq_paf(
   data,
@@ -15,7 +15,8 @@ seq_paf(
   boot_rep = 100,
   ci_type = c("norm"),
   ci_level = 0.95,
-  nsim = 1
+  nsim = 1,
+  weight_vec = NULL
 )
 }
 \arguments{
@@ -39,13 +40,15 @@ seq_paf(
 
 \item{ci_level}{Numeric.  Confidence level.  Default 0.95}
 
-\item{nsim}{Numeric.  Number of independent simulations of the dataset.  Default of 1.}
+\item{nsim}{Numeric.  Number of independent simulations of the dataset.  Default of 1}
+
+\item{weight_vec}{An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights}
 }
 \value{
 A numeric estimate of sequential PAF (if ci=FALSE), or else a data frame giving estimates and confidence limits of sequential PAF (if ci=TRUE)
 }
 \description{
-Calculation of Sequential paf taking into account risk factor sequencing
+Calculation of sequential paf taking into account risk factor sequencing
 }
 \examples{
 library(splines)
@@ -72,7 +75,10 @@ node_vec <- c("urban.rural","smoking.category","occupational.exposure", "y")
 model_list=automatic_fit(data=Hordaland_data, parent_list=parent_list,
 node_vec=node_vec, prev=.09)
 # sequential paf for occupational exposure conditional on elimination of urban.rural
-seq_paf(data=Hordaland_data, model_list=model_list, parent_list=parent_list,
+# Including weight column in data
+# necessary if Bootstrapping CIs
+seq_paf(data=model_list[[length(model_list)]]$data,
+model_list=model_list, parent_list=parent_list,
  node_vec=node_vec, prev=.09, vars = c("urban.rural",
  "occupational.exposure"),ci=FALSE)
 \donttest{

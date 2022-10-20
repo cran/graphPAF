@@ -40,8 +40,10 @@ parent_list <- list(parent_urban.rural, parent_smoking.category,
 parent_occupational.exposure, parent_y)
 # also specify nodes of graph, in order from root to leaves
 node_vec <- c("urban.rural","smoking.category","occupational.exposure", "y")
-model_list=automatic_fit(data=Hordaland_data, parent_list=parent_list, node_vec=node_vec, prev=.09)
-out <- average_paf(data=Hordaland_data, model_list=model_list,
+model_list=automatic_fit(Hordaland_data,
+parent_list=parent_list, node_vec=node_vec, prev=.09)
+out <- average_paf(data=model_list[[length(model_list)]]$data,
+ model_list=model_list,
 parent_list=parent_list, node_vec=node_vec, prev=.09, nperm=10,
 vars = c("urban.rural","occupational.exposure"),ci=FALSE)
 plot(out)
@@ -49,12 +51,14 @@ plot(out)
 # plot with confidence intervals for average and sequential PAF
 # (This is probably more useful for more than 2 risk factors).
 # Separate axes for each risk factor so confidence intervals can be clearly displayed
-out <- average_paf(data=Hordaland_data, model_list=model_list,
+out <- average_paf(data=model_list[[length(model_list)]]$data,
+ model_list=model_list,
 parent_list=parent_list, node_vec=node_vec, prev=.09, nperm=10,
 vars = c("urban.rural","occupational.exposure"),ci=TRUE,boot_rep=8)
 plot(out)
 # Here we plot, with margin of error of point estimate when 50 permutations are used
-out <- average_paf(data=Hordaland_data, model_list=model_list,
+out <- average_paf(data=model_list[[length(model_list)]]$data,
+ model_list=model_list,
 parent_list=parent_list, node_vec=node_vec, prev=.09, nperm=50,
 vars = c("urban.rural","occupational.exposure"),ci=FALSE,exact=FALSE)
 plot(out)

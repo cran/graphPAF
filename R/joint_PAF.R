@@ -1,14 +1,11 @@
-average_paf_no_CI <- function(data, model_list, parent_list, node_vec,  prev=.09, nperm=NULL, correct_order=3, alpha=0.05,vars=NULL, exact=TRUE){
-  #oldw <- getOption("warn")
-  #options(warn = -1)
+average_paf_no_CI <- function(data, model_list, parent_list, node_vec,  prev=.09, nperm=NULL, correct_order=3, alpha=0.05,vars=NULL, exact=TRUE, weight_vec=NULL){
 
   response_col <- (1:length(colnames(data)))[colnames(data) %in% node_vec[length(node_vec)]]
-  if(!c("weights") %in% colnames(data)) data$weights = rep(1, nrow(data))
+  w <- weight_vec
+  if(is.null(weight_vec)) w <- rep(1,nrow(data))
   if(!is.null(prev)){
     w = prev*as.numeric(data[,response_col]==1) + (1-prev)*as.numeric(data[,response_col]==0)
-    data$weights=w
   }
-  w <- data$weights
   col_list <- numeric(length(node_vec))
   N <- length(col_list)-1
   sim_disease_current_population <- predict(model_list[[N+1]],type="response")
@@ -16,11 +13,9 @@ average_paf_no_CI <- function(data, model_list, parent_list, node_vec,  prev=.09
   for(i in 1:(N+1)) col_list[i] <- (1:ncol(data))[colnames(data)==node_vec[i]]
   col_list_orig <- col_list
   if(!is.null(vars)){
-    #browser()
     indexes <- c((1:(N+1))[node_vec %in% vars],N+1)
     col_list <- col_list[indexes]
     N <- length(col_list)-1
-
   }
 
 
@@ -56,8 +51,19 @@ average_paf_no_CI <- function(data, model_list, parent_list, node_vec,  prev=.09
     }
     perm_mat <- perm_mat_temp
     rm(perm_mat_temp)
-    #print(paste0("doing ", nperm, " permutations"))
   }
+
+
+  order_fun <- function(x){
+
+    N <- length(x)
+    sum <- 0
+    for(i in 1:N){
+      sum <- sum + x[i]*(N+1)^(N-i)
+    }
+    return(sum)
+  }
+
 
   if(exact){
 
@@ -255,6 +261,7 @@ if(!exact){
 #' @param ci_type Character.  Default norm.  A vector specifying the types of confidence interval desired.  "norm", "basic", "perc" and "bca" are the available methods
 #' @param ci_level Numeric.  Default 0.95. A number between 0 and 1 specifying the level of the confidence interval (when ci=TRUE)
 #' @param ci_level_ME Numeric.  Default 0.95. A number between 0 and 1 specifying the level of the margin of error for the point estimate (only revelant when ci=FALSE and exact=FALSE)
+#' @param weight_vec An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights
 #' @return A SAF_summary object with average joint and sequential PAF for all risk factors in node_vec (or alternatively a subset of those risk factors if specified in vars).
 #' @export
 #'
@@ -285,7 +292,13 @@ if(!exact){
 #' # subsequent simulation of the incremental interventions on the distribution of risk
 #' # factors.  The permutations are stratified so each factor appears equally often in
 #' # the first correct_order positions.  correct_order has a default of 2.
-#' out <- average_paf(data=Hordaland_data, model_list=model_list, parent_list=parent_list,
+#'
+#' # model_list$data objects have fitting weights included
+#' # Including weight column in data
+#' # necessary if Bootstrapping CIs
+#'
+#' out <- average_paf(data=model_list[[length(model_list)]]$data,
+#'  model_list=model_list, parent_list=parent_list,
 #'  node_vec=node_vec, prev=.09, nperm=10,vars = c("urban.rural",
 #'  "occupational.exposure"),ci=FALSE)
 #'  print(out)
@@ -337,7 +350,7 @@ if(!exact){
 #'  print(out)
 #'  plot(out,max_PAF=0.5,min_PAF=-0.1,number_rows=3)
 #' }
-average_paf <- function(data, model_list, parent_list, node_vec, prev=.09, exact=TRUE, nperm=NULL, correct_order=2, vars=NULL,ci=FALSE,boot_rep=100, ci_type=c("norm"),ci_level=0.95, ci_level_ME=0.95){
+average_paf <- function(data, model_list, parent_list, node_vec, prev=.09, exact=TRUE, nperm=NULL, correct_order=2, vars=NULL,ci=FALSE,boot_rep=100, ci_type=c("norm"),ci_level=0.95, ci_level_ME=0.95,weight_vec=NULL){
 
   if(!node_order(parent_list=parent_list,node_vec=node_vec)){
     stop("ancestors must be specified before descendants in node_vec")
@@ -352,6 +365,7 @@ average_paf <- function(data, model_list, parent_list, node_vec, prev=.09, exact
     stop("please specify either correct_order and nperm")
 
   }
+  data <- as.data.frame(data)
   ## how many risk factors are under scrutiny?
   col_list <- numeric(length(node_vec))
   N <- length(col_list)-1
@@ -364,17 +378,18 @@ average_paf <- function(data, model_list, parent_list, node_vec, prev=.09, exact
     N <- length(col_list)-1
 
   }
+  if(is.null(weight_vec)) weight_vec = rep(1,nrow(data))
 
   if(!ci){
-    res <- average_paf_no_CI(data=data, model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, nperm=nperm, correct_order=correct_order, alpha=1-ci_level_ME,vars=vars,exact=exact)
+    res <- average_paf_no_CI(data=data, model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, nperm=nperm, correct_order=correct_order, alpha=1-ci_level_ME,vars=vars,exact=exact, weight_vec=weight_vec)
     return(res)
   }
-  #oldw <- getOption("warn")
-  #options(warn = -1)
+
   nc <- options()$boot.ncpus
   cl <- parallel::makeCluster(nc)
-  parallel::clusterExport(cl, c("ns"))
-  res <- boot::boot(data=data,statistic=average_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, nperm=nperm, correct_order=correct_order, vars=vars, exact=exact,cl=cl)
+  if("splines" %in% (.packages())) parallel::clusterExport(cl, c("ns"))
+  parallel::clusterExport(cl, c("sim_outnode","do_sim"))
+  res <- boot::boot(data=data,statistic=average_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, nperm=nperm, correct_order=correct_order, vars=vars, exact=exact,cl=cl,weight_vec=weight_vec)
   parallel::stopCluster(cl)
   if(is.null(vars)) vars <- node_vec[1:(length(node_vec)-1)]
   res <- extract_ci(res=res,model_type='glm',t_vector=c(paste0(rep(node_vec[node_vec %in% vars],times=rep(length(vars),length(vars))),'_',rep(1:length(vars),length(vars))),paste0("Average PAF ", node_vec[node_vec %in% vars]),'JointPAF'),ci_level=ci_level,ci_type=ci_type,continuous=TRUE)
@@ -390,7 +405,7 @@ average_paf <- function(data, model_list, parent_list, node_vec, prev=.09, exact
 
 }
 
-#' Print out SAF_summary object
+#' Print out a SAF_summary object
 #'
 #' @param x A SAF_summary object.  This is a special dataframe that is created by running the function average_PAF.
 #' @param ... Other arguments to be passed to print
@@ -419,9 +434,15 @@ average_paf <- function(data, model_list, parent_list, node_vec, prev=.09, exact
 # # here we use the auxillary function 'automatic fit'
 #' model_list=automatic_fit(data=Hordaland_data, parent_list=parent_list,
 #'  node_vec=node_vec, prev=.09)
-#' out <- average_paf(data=Hordaland_data, model_list=model_list,
+#' # model_list$data objects have fitting weights
+#' # included in data frame
+#' # Including weight column in data
+#' # necessary if Bootstrapping CIs
+#' out <- average_paf(data=model_list[[length(model_list)]]$data,
+#' model_list=model_list,
 #' parent_list=parent_list, node_vec=node_vec, prev=.09, nperm=10,
 #' vars = c("urban.rural","occupational.exposure"),ci=FALSE)
+#' print(out)
 print.SAF_summary <- function(x,...){
 
   data_frame <- structure(as.list(x),class="data.frame", row.names=attr(x,"row.names"))
@@ -429,182 +450,90 @@ print.SAF_summary <- function(x,...){
 
 }
 
-average_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09, nperm=100, correct_order=3, vars=NULL, exact=TRUE){
-
-  ################################
-
-  refit <- function(model,data,with_weights=FALSE){
-    model_type <- NULL
-    if(grepl("^glm$",as.character(model$call)[1],perl=TRUE)) model_type <- "glm"
-    if(grepl("^lm$",as.character(model$call)[1],perl=TRUE)) model_type <- "lm"
-    if(grepl("^.*polr$",as.character(model$call)[1],perl=TRUE)) model_type <- "polr"
-    if(grepl("^coxph$",as.character(model$call)[1],perl=TRUE)){
-      if("userCall" %in% names(model)){
-        model_type <- "clogit"
-      }else{
-        model_type <- "coxph"
-      }
-    }
-    if(model_type=="clogit"){
-      model_text <- as.character(eval(parse(text=as.character(model$userCall)[2])))
-      model_text <- paste0(model_text[2],model_text[1],model_text[3])
-      model_text <- paste0("survival::clogit(",model_text,",data=data)")
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-    if(model_type=="coxph"){
-
-      model_text <- as.character(model$call)
-      model_text <- paste0("survival::coxph(",model_text[2],",data=data)")
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type== "glm"){
-      #browser()
-      model_text <- as.character(model$call)
-      if(with_weights==FALSE && length(model_text)==4) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"))")
-      if(with_weights==TRUE && length(model_text)==4) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"),weights=weights)")
-      if(length(model_text)==5) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"),weights=",model_text[5],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type == "lm"){
-      model_text <- as.character(model$call)
-      if(with_weights==FALSE && length(model_text)==3) model_text_u <- paste0("lm(",model_text[2],",data=data)")
-      if(with_weights==TRUE && length(model_text)==3) model_text_u <- paste0("lm(",model_text[2],",data=data,weights=weights)")
-      if(length(model_text)==4) model_text_u <- paste0("lm(",model_text[2],",data=data, weights=",model_text[4],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type == "polr"){
-      model_text <- as.character(model$call)
-      if(length(model_text)==3) model_text_u <- paste0("MASS::polr(",model_text[2],",data=data)")
-      if(length(model_text)==4) model_text_u <- paste0("MASS::polr(",model_text[2],",data=data, weights=",model_text[4],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-    model
-  }
-
-
-
-  sim_outnode <- function(data,col_num, current_mat, parent_list, col_list,model_list){
+#' Internal:  Simulate from the post intervention distribution corresponding to eliminating a risk factor
+#'
+#' @param data Data frame. A dataframe containing the original variables used for fitting the models.  Must contain all variables used in fitting
+#' @param col_num The indicator for the risk factor that is being eliminated
+#' @param current_mat The current value of the data frame
+#' @param parent_list A list.  The ith element is the vector of variable names that are direct causes of ith variable in node_vec (Note that the variable names should be columns in data)
+#' @param col_list Column indicators for the variables in node_vec (note that node_vec is ordered from root to leaves)
+#' @param model_list List.  A list of fitted models corresponding for the outcome variables in node_vec, with parents as described in parent_vec.  This list must be in the same order as node_vec and parent_list.  Models can be linear (lm), logistic (glm) or ordinal logistic (polr). Non-linear effects of variables (if necessary) should be specified via ns(x, df=y), where ns is the natural spline function from the splines library
+#' @return An updated data frame (a new version of current_mat) with new columns simulated for variables that the risk factor causally effects.
+#' @export
+sim_outnode <- function(data,col_num, current_mat, parent_list, col_list,model_list){
 
     if(is.factor(current_mat[,col_num])) current_mat[,col_num] <- levels(data[,col_num])[1]
-    if(is.numeric(current_mat[,col_num])) current_mat[,col_num] <- 0
+  if(is.numeric(current_mat[,col_num])) current_mat[,col_num] <- 0
 
-    colname <- colnames(current_mat)[col_num]
+  colname <- colnames(current_mat)[col_num]
 
-    for(i in 1:(length(parent_list)-1)){
-      if(colname %in% parent_list[[i]]){
-        if(length(table(current_mat[,col_list[[i]]] ))==1) next
+  for(i in 1:(length(parent_list)-1)){
+    if(colname %in% parent_list[[i]]){
+      if(length(table(current_mat[,col_list[[i]]] ))==1) next
 
-        if(is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- factor(do_sim(col_list[i],current_mat,model_list[[i]]),levels=levels(current_mat[,col_list[i]]))
-        if(!is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- do_sim(col_list[i],current_mat,model_list[[i]],SN=TRUE)
-      }
-    }
-    current_mat
-  }
-
-
-
-  do_sim <- function(colnum,current_mat, model,SN=FALSE){
-    ## polr
-    if(names(model)[2]=='zeta'){
-
-      probs <- predict(model,newdata=current_mat,type="probs")
-      mynames <- colnames(probs)
-      return(apply(probs,1,function(x){base::sample(mynames,size=1,prob=x)}))
-    }
-    # glm
-    if(length(grep("glm",model$call))>0){
-
-      probs <- predict(model,newdata=current_mat,type="response")
-      if(is.null(levels(current_mat[,colnum]))) return(apply(cbind(1-probs,probs),1,function(x){base::sample(c(0,1),size=1,prob=x)}))
-      return(apply(cbind(1-probs,probs),1,function(x){base::sample(levels(current_mat[,colnum]),size=1,prob=x)}))
-    }
-    # regression
-    if(length(grep("lm",model$call))>0){
-
-      pred <- predict(model,newdata=current_mat,type="response")
-      resids <- model$residuals
-      if(SN){
-
-        return(pred+resids)
-
-      }
-
-      #browser()
-      #return(pred + sample(summary(model)$residuals,length(resids),replace=TRUE))
-      #return(pred + rnorm(length(resids),mean=0,sd=.1*sd(resids)))
-      return(pred + sample(resids,length(resids),replace=TRUE, prob=model$weights/sum(model$weights)))
+      if(is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- factor(do_sim(col_list[i],current_mat,model_list[[i]]),levels=levels(current_mat[,col_list[i]]))
+      if(!is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- do_sim(col_list[i],current_mat,model_list[[i]],SN=TRUE)
     }
   }
+  current_mat
+}
+
+
+#' Internal:  Simulate a column from the post intervention distribution corresponding to eliminating a risk factor
+#'
+#' @param colnum The column indicator for the variable being simulated
+#' @param current_mat The current value of the data frame
+#' @param model A fitted model for simulating values of the variable, given the parent values
+#' @param SN Logical.  If TRUE (default) simulations are achieved via adding the original model residuals, to the new fitted values based on the updated values of parents in current_mat.
+#' @return An updated data frame (a new version of current_mat) with a new column simulated
+#' @export
+do_sim <- function(colnum,current_mat, model,SN=TRUE){
+  ## polr
+  if(class(model)[1]=="polr"){
+
+    probs <- predict(model,newdata=current_mat,type="probs")
+    mynames <- colnames(probs)
+    return(apply(probs,1,function(x){base::sample(mynames,size=1,prob=x)}))
+  }
+  # glm
+  if(class(model)[1]=="glm"){
+
+    probs <- predict(model,newdata=current_mat,type="response")
+    if(is.null(levels(current_mat[,colnum]))) return(apply(cbind(1-probs,probs),1,function(x){base::sample(c(0,1),size=1,prob=x)}))
+    return(apply(cbind(1-probs,probs),1,function(x){base::sample(levels(current_mat[,colnum]),size=1,prob=x)}))
+  }
+  # regression
+  if(class(model)[1]=="lm"){
+
+    pred <- predict(model,newdata=current_mat,type="response")
+    resids <- model$residuals
+    if(SN){
+
+      return(pred+resids)
+
+    }
+    return(pred + sample(resids,length(resids),replace=TRUE, prob=model$weight_vec/sum(model$weight_vec)))
+  }
+}
+
+
+
+
+average_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09, nperm=100, correct_order=3, vars=NULL, exact=TRUE, weight_vec=NULL){
+
   ##################################
 
 
   data <- data[ind,]
   n_data <- nrow(data)
   response_col <- (1:length(colnames(data)))[colnames(data) %in% node_vec[length(node_vec)]]
-  if(!c("weights") %in% colnames(data)) data$weights = rep(1, nrow(data))
-  if(!is.null(prev)){
+  w <- weight_vec
+  if(is.null(weight_vec)) w <- rep(1,nrow(data))
+  w <- w[ind]
+   if(!is.null(prev)){
     w = prev*as.numeric(data[,response_col]==1) + (1-prev)*as.numeric(data[,response_col]==0)
-    data$weights=w
   }
-  w <- data$weights
-  #  if(!all(ind==1:n_data)) browser()
-  if(!all(ind==1:n_data)) for(i in 1:length(model_list)) model_list[[i]] <- refit(model=model_list[[i]],data=data)
+  if(!all(ind==1:n_data)) for(i in 1:length(model_list)) model_list[[i]] <- update(model_list[[i]],data=data)
 
 
    col_list <- numeric(length(node_vec))
@@ -666,6 +595,8 @@ average_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev
     }
     return(sum)
   }
+
+
   if(exact){
 
     perm_mat <- matrix(ncol=N)
@@ -724,9 +655,7 @@ average_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev
     reverse_order_mat[i,] <- reverse_order
   }
    if(exact){
-     # calculations are for joint PAFs rather than sequential PAFs
-     # First check permutation to see if it's the same as previous permutation
-     no_intervention <- sim_disease_current_population
+          no_intervention <- sim_disease_current_population
 
      start_again=TRUE
      if(i==1){
@@ -810,61 +739,6 @@ average_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev
 
 }
 
-
-
-sim_outnode <- function(data,col_num, current_mat, parent_list, col_list,model_list){
-
-  if(is.factor(current_mat[,col_num])) current_mat[,col_num] <- levels(data[,col_num])[1]
-  if(is.numeric(current_mat[,col_num])) current_mat[,col_num] <- 0
-
-  colname <- colnames(current_mat)[col_num]
-
-  for(i in 1:(length(parent_list)-1)){
-    if(colname %in% parent_list[[i]]){
-      if(length(table(current_mat[,col_list[[i]]] ))==1) next
-
-      if(is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- factor(do_sim(col_list[i],current_mat,model_list[[i]]),levels=levels(current_mat[,col_list[i]]))
-      if(!is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- do_sim(col_list[i],current_mat,model_list[[i]],SN=TRUE)
-    }
-  }
-  current_mat
-}
-
-
-
-do_sim <- function(colnum,current_mat, model,SN=FALSE){
-  ## polr
-  if(names(model)[2]=='zeta'){
-
-    probs <- predict(model,newdata=current_mat,type="probs")
-    mynames <- colnames(probs)
-    return(apply(probs,1,function(x){base::sample(mynames,size=1,prob=x)}))
-  }
-  # glm
-  if(length(grep("glm",model$call))>0){
-
-    probs <- predict(model,newdata=current_mat,type="response")
-    if(is.null(levels(current_mat[,colnum]))) return(apply(cbind(1-probs,probs),1,function(x){base::sample(c(0,1),size=1,prob=x)}))
-    return(apply(cbind(1-probs,probs),1,function(x){base::sample(levels(current_mat[,colnum]),size=1,prob=x)}))
-  }
-  # regression
-  if(length(grep("lm",model$call))>0){
-
-    pred <- predict(model,newdata=current_mat,type="response")
-    resids <- model$residuals
-    if(SN){
-
-      return(pred+resids)
-
-    }
-
-    #browser()
-    #return(pred + sample(summary(model)$residuals,length(resids),replace=TRUE))
-    #return(pred + rnorm(length(resids),mean=0,sd=.1*sd(resids)))
-    return(pred + sample(resids,length(resids),replace=TRUE, prob=model$weights/sum(model$weights)))
-  }
-}
-
 make_formula <- function(parents,outcome_node,common='',spline_nodes=c(),df_spline_nodes=3){
    if(length(parents)==0) return(paste(outcome_node,"~ 1"))
   if(common!="") result <- paste(outcome_node,"~",common,"+ ",parents[1])
@@ -880,7 +754,7 @@ make_formula <- function(parents,outcome_node,common='',spline_nodes=c(),df_spli
   }
   result
 }
-#' Automatic fitting models for Bayesian network.
+#' Automatic fitting of probability models in a pre-specified Bayesian network.
 #'
 #' Main effects models are fit by default.  For continuous variables, lm is used, for binary (numeric 0/1 variables), glm is used and for factor valued variables polr is used.  For factors, ensure that the factor levels are ordered by increasing levels of risk.  If interactions are required for certain models, it is advisable to populate the elements of model_list separately.
 #'
@@ -927,9 +801,9 @@ make_formula <- function(parents,outcome_node,common='',spline_nodes=c(),df_spli
 #' sex*ns(age,df=5)", spline_nodes = c("waist_hip_ratio","lipids","diet"))
 #' }
 automatic_fit <- function(data, parent_list, node_vec, prev=.09,common='',spline_nodes=c(),df_spline_nodes=3){
-  #oldw <- getOption("warn")
-  #options(warn = -1)
 
+
+data <- as.data.frame(data)
 model_list=list()
 outcome_name <- node_vec[length(node_vec)]
 outcome_bin <- data[,colnames(data) %in% outcome_name]
@@ -968,7 +842,6 @@ for(i in 1:length(node_vec)){
   to_execute <- paste("model_list[[i]] <-", theform,sep='')
   eval(parse(text=to_execute))
 }
-#options(warn = oldw)
 
 model_list
 }
@@ -985,20 +858,10 @@ node_order <- function(parent_list, node_vec){
   return(TRUE)
 }
 
-order_fun <- function(x){
 
-  N <- length(x)
-  sum <- 0
-  for(i in 1:N){
-    sum <- sum + x[i]*(N+1)^(N-i)
-  }
-  return(sum)
-}
+##################################  Joint PAF
 
-
-##################################  the same functions as above are replicated here - but only return joint_PAF
-
-#' Calculation of joint paf taking into account risk factor sequencing
+#' Calculation of joint attributable fractions over several risk factors taking into account risk factor sequencing
 #'
 #' @param data Data frame. A dataframe containing variables used for fitting the models.  Must contain all variables used in fitting
 #' @param model_list List.  A list of fitted models corresponding for the outcome variables in node_vec, with parents as described in parent_vec.  This list must be in the same order as node_vec and parent_list. Non-linear effects should be specified via ns(x, df=y), where ns is the natural spline function from the splines library.  Linear (lm), logistic (glm) and ordinal logistic (polr) models are permitted
@@ -1010,7 +873,8 @@ order_fun <- function(x){
 #' @param boot_rep Integer.  Number of bootstrap replications (Only necessary to specify if ci=TRUE).  Note that at least 50 replicates are recommended to achieve stable estimates of standard error.  In the examples below, values of boot_rep less than 50 are sometimes used to limit run time.
 #' @param ci_type Character.  Default norm.  A vector specifying the types of confidence interval desired.  "norm", "basic", "perc" and "bca" are the available method
 #' @param ci_level Numeric.  Confidence level.  Default 0.95
-#' @param nsim Numeric.  Number of independent simulations of the dataset.  Default of 1.
+#' @param nsim Numeric.  Number of independent simulations of the dataset.  Default of 1
+#' @param weight_vec An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights
 #' @return A numeric estimate of the joint PAF for all risk factors (if ci=FALSE), or a data frame giving joint PAF and confidence intervals (if ci=TRUE)
 #' @export
 #'
@@ -1039,7 +903,11 @@ order_fun <- function(x){
 #' # here we use the auxillary function 'automatic fit'
 #' model_list=automatic_fit(data=Hordaland_data, parent_list=parent_list,
 #' node_vec=node_vec, prev=.09)
-#' joint_paf(data=Hordaland_data, model_list=model_list, parent_list=parent_list,
+#' # model_list$data objects have fitting weights included
+#' # Including weight column in data
+#' # necessary if Bootstrapping CIs
+#' joint_paf(data=model_list[[length(model_list)]]$data,
+#'  model_list=model_list, parent_list=parent_list,
 #'  node_vec=node_vec, prev=.09, vars = c("urban.rural",
 #'  "occupational.exposure"),ci=FALSE)
 #' \donttest{
@@ -1072,19 +940,22 @@ order_fun <- function(x){
 #' vars = c("high_blood_pressure","smoking","stress","exercise","alcohol",
 #' "diabetes","early_stage_heart_disease"),ci=TRUE,boot_rep=10)
 #' }
-joint_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, vars=NULL,ci=FALSE,boot_rep=100, ci_type=c("norm"),ci_level=0.95,nsim=1){
+joint_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, vars=NULL,ci=FALSE,boot_rep=100, ci_type=c("norm"),ci_level=0.95,nsim=1,weight_vec=NULL){
   if(!node_order(parent_list=parent_list,node_vec=node_vec)){
     stop("ancestors must be specified before descendants in node_vec")
   }
   if(!is.null(vars) & !all(vars %in% node_vec)){
     stop("Not all requested variables are in node_vec.  Check spelling")
   }
-if(!ci) return(joint_paf_inner(data=data,ind=1:nrow(data), model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev,vars=vars,nsim=nsim))
+  data <- as.data.frame(data)
+
+
+if(!ci) return(joint_paf_inner(data=data,ind=1:nrow(data), model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev,vars=vars,nsim=nsim,weight_vec=weight_vec))
   nc <- options()$boot.ncpus
   cl <- parallel::makeCluster(nc)
-  parallel::clusterExport(cl, c("ns"))
-
-  res <- boot::boot(data=data,statistic=joint_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, vars=vars,nsim=nsim,cl=cl)
+  if("splines" %in% (.packages())) parallel::clusterExport(cl, c("ns"))
+  parallel::clusterExport(cl, c("sim_outnode","do_sim"))
+  res <- boot::boot(data=data,statistic=joint_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, vars=vars,nsim=nsim,weight_vec=weight_vec,cl=cl)
   parallel::stopCluster(cl)
   stuff <- extract_ci(res=res,model_type='glm',ci_level=ci_level,ci_type=ci_type,continuous=TRUE,t_vector=c("joint PAF"))
   return(stuff)
@@ -1092,184 +963,18 @@ if(!ci) return(joint_paf_inner(data=data,ind=1:nrow(data), model_list=model_list
 }
 
 
-joint_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09,vars=NULL,nsim=1){
-
-   ################################
-
-  refit <- function(model,data,with_weights=FALSE){
-    model_type <- NULL
-    if(grepl("^glm$",as.character(model$call)[1],perl=TRUE)) model_type <- "glm"
-    if(grepl("^lm$",as.character(model$call)[1],perl=TRUE)) model_type <- "lm"
-    if(grepl("^.*polr$",as.character(model$call)[1],perl=TRUE)) model_type <- "polr"
-    if(grepl("^coxph$",as.character(model$call)[1],perl=TRUE)){
-      if("userCall" %in% names(model)){
-        model_type <- "clogit"
-      }else{
-        model_type <- "coxph"
-      }
-    }
-    if(model_type=="clogit"){
-      model_text <- as.character(eval(parse(text=as.character(model$userCall)[2])))
-      model_text <- paste0(model_text[2],model_text[1],model_text[3])
-      model_text <- paste0("survival::clogit(",model_text,",data=data)")
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-    if(model_type=="coxph"){
-
-      model_text <- as.character(model$call)
-      model_text <- paste0("survival::coxph(",model_text[2],",data=data)")
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type== "glm"){
-      #browser()
-      model_text <- as.character(model$call)
-      if(with_weights==FALSE && length(model_text)==4) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"))")
-      if(with_weights==TRUE && length(model_text)==4) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"),weights=weights)")
-      if(length(model_text)==5) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"),weights=",model_text[5],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-
-    }
-
-
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type == "lm"){
-      model_text <- as.character(model$call)
-      if(with_weights==FALSE && length(model_text)==3) model_text_u <- paste0("lm(",model_text[2],",data=data)")
-      if(with_weights==TRUE && length(model_text)==3) model_text_u <- paste0("lm(",model_text[2],",data=data,weights=weights)")
-      if(length(model_text)==4) model_text_u <- paste0("lm(",model_text[2],",data=data, weights=",model_text[4],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type == "polr"){
-      model_text <- as.character(model$call)
-      if(length(model_text)==3) model_text_u <- paste0("MASS::polr(",model_text[2],",data=data)")
-      if(length(model_text)==4) model_text_u <- paste0("MASS::polr(",model_text[2],",data=data, weights=",model_text[4],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-    model
-  }
-
-
-  sim_outnode <- function(data,col_num, current_mat, parent_list, col_list,model_list){
-
-    if(is.factor(current_mat[,col_num])) current_mat[,col_num] <- levels(data[,col_num])[1]
-    if(is.numeric(current_mat[,col_num])) current_mat[,col_num] <- 0
-
-    colname <- colnames(current_mat)[col_num]
-
-    for(i in 1:(length(parent_list)-1)){
-      if(colname %in% parent_list[[i]]){
-        if(length(table(current_mat[,col_list[[i]]] ))==1) next
-
-        if(is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- factor(do_sim(col_list[i],current_mat,model_list[[i]]),levels=levels(current_mat[,col_list[i]]))
-        if(!is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- do_sim(col_list[i],current_mat,model_list[[i]],SN=TRUE)
-      }
-    }
-    current_mat
-  }
-
-
-
-  do_sim <- function(colnum,current_mat, model,SN=FALSE){
-    ## polr
-    if(names(model)[2]=='zeta'){
-
-      probs <- predict(model,newdata=current_mat,type="probs")
-      mynames <- colnames(probs)
-      return(apply(probs,1,function(x){base::sample(mynames,size=1,prob=x)}))
-    }
-    # glm
-    if(length(grep("glm",model$call))>0){
-
-      probs <- predict(model,newdata=current_mat,type="response")
-      if(is.null(levels(current_mat[,colnum]))) return(apply(cbind(1-probs,probs),1,function(x){base::sample(c(0,1),size=1,prob=x)}))
-      return(apply(cbind(1-probs,probs),1,function(x){base::sample(levels(current_mat[,colnum]),size=1,prob=x)}))
-    }
-    # regression
-    if(length(grep("lm",model$call))>0){
-
-      pred <- predict(model,newdata=current_mat,type="response")
-      resids <- model$residuals
-      if(SN){
-
-        return(pred+resids)
-
-      }
-
-      #browser()
-      #return(pred + sample(summary(model)$residuals,length(resids),replace=TRUE))
-      #return(pred + rnorm(length(resids),mean=0,sd=.1*sd(resids)))
-      return(pred + sample(resids,length(resids),replace=TRUE, prob=model$weights/sum(model$weights)))
-    }
-  }
-  ##################################
-
+joint_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09,vars=NULL,nsim=1,weight_vec=NULL){
 
   data <- data[ind,]
   n_data <- nrow(data)
   response_col <- (1:length(colnames(data)))[colnames(data) %in% node_vec[length(node_vec)]]
-  if(!c("weights") %in% colnames(data)) data$weights = rep(1, nrow(data))
+  w <- weight_vec
+  if(is.null(weight_vec)) w <- rep(1,nrow(data))
+  w <- w[ind]
   if(!is.null(prev)){
     w = prev*as.numeric(data[,response_col]==1) + (1-prev)*as.numeric(data[,response_col]==0)
-    data$weights=w
-  }
-  w <- data$weights
-  #  if(!all(ind==1:n_data)) browser()
-  if(!all(ind==1:n_data)) for(i in 1:length(model_list)) model_list[[i]] <- refit(model=model_list[[i]],data=data)
+     }
+  if(!all(ind==1:n_data)) for(i in 1:length(model_list)) model_list[[i]] <- update(model_list[[i]],data=data)
 
 
    sim_disease_current_population <- predict(model_list[[length(node_vec)]],type="response")
@@ -1300,7 +1005,7 @@ current_mat <- data
 
 }
 
-#' Calculation of Sequential paf taking into account risk factor sequencing
+#' Calculation of sequential paf taking into account risk factor sequencing
 #'
 #' @param data Data frame. A dataframe containing variables used for fitting the models.  Must contain all variables used in fitting
 #' @param model_list List.  A list of fitted model objects corresponding for the outcome variables in node_vec, with parents as described in parent_vec. Linear (lm), logistic (glm) and ordinal (polr) objects are allowed. This list must be in the same order as node_vec and parent_list.  Non-linear effects should be specified via ns(x, df=y), where ns is the natural spline function from the splines library.
@@ -1312,7 +1017,8 @@ current_mat <- data
 #' @param boot_rep Integer.  Number of bootstrap replications (Only necessary to specify if ci=TRUE).  Note that at least 50 replicates are recommended to achieve stable estimates of standard error.  In the examples below, values of boot_rep less than 50 are sometimes used to limit run time.
 #' @param ci_type Character.  Default norm.  A vector specifying the types of confidence interval desired.  "norm", "basic", "perc" and "bca" are the available methods
 #' @param ci_level Numeric.  Confidence level.  Default 0.95
-#' @param nsim Numeric.  Number of independent simulations of the dataset.  Default of 1.
+#' @param nsim Numeric.  Number of independent simulations of the dataset.  Default of 1
+#' @param weight_vec An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights
 #' @return A numeric estimate of sequential PAF (if ci=FALSE), or else a data frame giving estimates and confidence limits of sequential PAF (if ci=TRUE)
 #' @export
 #'
@@ -1343,7 +1049,10 @@ current_mat <- data
 #' model_list=automatic_fit(data=Hordaland_data, parent_list=parent_list,
 #' node_vec=node_vec, prev=.09)
 #' # sequential paf for occupational exposure conditional on elimination of urban.rural
-#' seq_paf(data=Hordaland_data, model_list=model_list, parent_list=parent_list,
+#' # Including weight column in data
+#' # necessary if Bootstrapping CIs
+#' seq_paf(data=model_list[[length(model_list)]]$data,
+#' model_list=model_list, parent_list=parent_list,
 #'  node_vec=node_vec, prev=.09, vars = c("urban.rural",
 #'  "occupational.exposure"),ci=FALSE)
 #' \donttest{
@@ -1379,7 +1088,7 @@ current_mat <- data
 #' parent_list, node_vec=node_vec, prev=.0035, vars = c("high_blood_pressure",
 #' "smoking","stress"),ci=TRUE,boot_rep=10)
 #' }
-seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, vars=NULL,ci=FALSE,boot_rep=100, ci_type=c("norm"),ci_level=0.95,nsim=1){
+seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, vars=NULL,ci=FALSE,boot_rep=100, ci_type=c("norm"),ci_level=0.95,nsim=1,weight_vec=NULL){
   if(!node_order(parent_list=parent_list,node_vec=node_vec)){
     stop("ancestors must be specified before descendants in node_vec")
   }
@@ -1389,11 +1098,14 @@ seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, vars=NUL
   if(!is.null(vars) & length(vars)<2){
     stop("Enter at least 2 risk factors.  SAF is calculated for the last risk factor conditional on the others in list")
   }
-  if(!ci) return(seq_paf_inner(data=data,ind=1:nrow(data), model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev,vars=vars,nsim=nsim))
+
+  data <- as.data.frame(data)
+  if(!ci) return(seq_paf_inner(data=data,ind=1:nrow(data), model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev,vars=vars,nsim=nsim,weight_vec=weight_vec))
   nc <- options()$boot.ncpus
   cl <- parallel::makeCluster(nc)
-  parallel::clusterExport(cl, c("ns"))
-  res <- boot::boot(data=data,statistic=seq_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, vars=vars,nsim=nsim,cl=cl)
+  if("splines" %in% (.packages())) parallel::clusterExport(cl, c("ns"))
+  parallel::clusterExport(cl, c("sim_outnode","do_sim"))
+  res <- boot::boot(data=data,statistic=seq_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, vars=vars,nsim=nsim,weight_vec=weight_vec,cl=cl)
   parallel::stopCluster(cl)
   stuff <- extract_ci(res=res,model_type='glm',ci_level=ci_level,ci_type=ci_type,continuous=TRUE,t_vector=c("sequential PAF"))
   return(stuff)
@@ -1401,184 +1113,18 @@ seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, vars=NUL
 }
 
 
-seq_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09,vars=NULL,nsim=1){
-
-
-
-  ################################
-
-
-  refit <- function(model,data,with_weights=FALSE){
-    model_type <- NULL
-    if(grepl("^glm$",as.character(model$call)[1],perl=TRUE)) model_type <- "glm"
-    if(grepl("^lm$",as.character(model$call)[1],perl=TRUE)) model_type <- "lm"
-    if(grepl("^.*polr$",as.character(model$call)[1],perl=TRUE)) model_type <- "polr"
-    if(grepl("^coxph$",as.character(model$call)[1],perl=TRUE)){
-      if("userCall" %in% names(model)){
-        model_type <- "clogit"
-      }else{
-        model_type <- "coxph"
-      }
-    }
-    if(model_type=="clogit"){
-      model_text <- as.character(eval(parse(text=as.character(model$userCall)[2])))
-      model_text <- paste0(model_text[2],model_text[1],model_text[3])
-      model_text <- paste0("survival::clogit(",model_text,",data=data)")
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-    if(model_type=="coxph"){
-
-      model_text <- as.character(model$call)
-      model_text <- paste0("survival::coxph(",model_text[2],",data=data)")
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type== "glm"){
-      #browser()
-      model_text <- as.character(model$call)
-      if(with_weights==FALSE && length(model_text)==4) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"))")
-      if(with_weights==TRUE && length(model_text)==4) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"),weights=weights)")
-      if(length(model_text)==5) model_text_u <- paste0("glm(",model_text[2],",data=data, family=binomial(link=",as.character(family(model)[2]),"),weights=",model_text[5],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type == "lm"){
-      model_text <- as.character(model$call)
-      if(with_weights==FALSE && length(model_text)==3) model_text_u <- paste0("lm(",model_text[2],",data=data)")
-      if(with_weights==TRUE && length(model_text)==3) model_text_u <- paste0("lm(",model_text[2],",data=data,weights=weights)")
-      if(length(model_text)==4) model_text_u <- paste0("lm(",model_text[2],",data=data, weights=",model_text[4],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-
-    if(model_type == "polr"){
-      model_text <- as.character(model$call)
-      if(length(model_text)==3) model_text_u <- paste0("MASS::polr(",model_text[2],",data=data)")
-      if(length(model_text)==4) model_text_u <- paste0("MASS::polr(",model_text[2],",data=data, weights=",model_text[4],")")
-      model_text <- model_text_u
-      if(length(grep(pattern='^(.*)splines::ns\\((.*)$',x=model_text))==0){
-        thesplit <- ""
-        while(length(grep(pattern='^.*ns\\(.*$',x=model_text))>0){
-          model_text <- gsub(pattern='^(.*)ns\\((.*)$',replacement='\\1splines::ns\\(\\2',x=model_text)
-          stuff <- strsplit(model_text,split="splines::ns(",fixed=TRUE)
-          model_text <- stuff[[1]][1]
-          thesplit <- paste0("splines::ns(",stuff[[1]][2],thesplit)
-        }
-        model_text <- paste0(model_text,thesplit)
-      }
-      model <- eval(parse(text=model_text))
-    }
-    model
-  }
-
-
-  sim_outnode <- function(data,col_num, current_mat, parent_list, col_list,model_list){
-
-    if(is.factor(current_mat[,col_num])) current_mat[,col_num] <- levels(data[,col_num])[1]
-    if(is.numeric(current_mat[,col_num])) current_mat[,col_num] <- 0
-
-    colname <- colnames(current_mat)[col_num]
-
-    for(i in 1:(length(parent_list)-1)){
-      if(colname %in% parent_list[[i]]){
-        if(length(table(current_mat[,col_list[[i]]] ))==1) next
-
-        if(is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- factor(do_sim(col_list[i],current_mat,model_list[[i]]),levels=levels(current_mat[,col_list[i]]))
-        if(!is.factor(current_mat[,col_list[i]])) current_mat[,col_list[i]] <- do_sim(col_list[i],current_mat,model_list[[i]],SN=TRUE)
-      }
-    }
-    current_mat
-  }
-
-
-
-  do_sim <- function(colnum,current_mat, model,SN=FALSE){
-    ## polr
-    if(names(model)[2]=='zeta'){
-
-      probs <- predict(model,newdata=current_mat,type="probs")
-      mynames <- colnames(probs)
-      return(apply(probs,1,function(x){base::sample(mynames,size=1,prob=x)}))
-    }
-    # glm
-    if(length(grep("glm",model$call))>0){
-
-      probs <- predict(model,newdata=current_mat,type="response")
-      if(is.null(levels(current_mat[,colnum]))) return(apply(cbind(1-probs,probs),1,function(x){base::sample(c(0,1),size=1,prob=x)}))
-      return(apply(cbind(1-probs,probs),1,function(x){base::sample(levels(current_mat[,colnum]),size=1,prob=x)}))
-    }
-    # regression
-    if(length(grep("lm",model$call))>0){
-
-      pred <- predict(model,newdata=current_mat,type="response")
-      resids <- model$residuals
-      if(SN){
-
-        return(pred+resids)
-
-      }
-
-      #browser()
-      #return(pred + sample(summary(model)$residuals,length(resids),replace=TRUE))
-      #return(pred + rnorm(length(resids),mean=0,sd=.1*sd(resids)))
-      return(pred + sample(resids,length(resids),replace=TRUE, prob=model$weights/sum(model$weights)))
-    }
-  }
-  ##################################
-
+seq_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09,vars=NULL,nsim=1,weight_vec=NULL){
 
   data <- data[ind,]
   n_data <- nrow(data)
   response_col <- (1:length(colnames(data)))[colnames(data) %in% node_vec[length(node_vec)]]
-  if(!c("weights") %in% colnames(data)) data$weights = rep(1, nrow(data))
+  w <- weight_vec
+  if(is.null(weight_vec)) w <- rep(1,nrow(data))
+  w <- w[ind]
   if(!is.null(prev)){
     w = prev*as.numeric(data[,response_col]==1) + (1-prev)*as.numeric(data[,response_col]==0)
-    data$weights=w
   }
-  w <- data$weights
-  #  if(!all(ind==1:n_data)) browser()
-  if(!all(ind==1:n_data)) for(i in 1:length(model_list)) model_list[[i]] <- refit(model=model_list[[i]],data=data)
+  if(!all(ind==1:n_data)) for(i in 1:length(model_list)) model_list[[i]] <- update(model_list[[i]],data=data)
 
 
   sim_disease_current_population <- predict(model_list[[length(node_vec)]],type="response")
@@ -1590,7 +1136,6 @@ seq_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=.09
     for(i in 1:(N+1)) col_list[i] <- (1:ncol(data))[colnames(data)==node_vec[i]]
     col_list_orig <- col_list
     if(!is.null(vars)){
-      #browser()
       indexes <- numeric(length(vars))
       for(i in 1:length(vars))  indexes[i] <- (1:(N+1))[node_vec %in% vars[i]]
       indexes <- c(indexes,N+1)

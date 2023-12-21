@@ -197,7 +197,7 @@ if(!exact){
     #options(warn = oldw)
     thedframe <- data.frame(position=c(rep(paste("elimination position",1:N),N),rep("Average",N),"Joint"),"risk factor"=c(rep(colnames(SAF_mat_exact),times=rep(N,N)),colnames(SAF_mat_exact),""),estimate=c(as.vector(SAF_mat_exact),average_PAF,joint_PAF_vec[N]),check.names=FALSE)
     #print(thedframe)
-    avepafs <- structure(thedframe,class="SAF_summary")
+    avepafs <- structure(list(res=thedframe),class="SAF_summary")
       return(avepafs)
   }
 
@@ -239,7 +239,7 @@ if(!exact){
   rownames(SAF_summary) = NULL
   colnames(SAF_summary) <- c("position", "risk factor", "estimate", "Margin error", "lower bound", "Upper bound")
   #print(SAF_summary)
-  SAF_summary <- structure(data.frame(SAF_summary,check.names=FALSE),class="SAF_summary")
+  SAF_summary <- structure(list(res=data.frame(SAF_summary,check.names=FALSE)),class="SAF_summary")
   #options(warn = oldw)
   return(SAF_summary)
 
@@ -262,6 +262,7 @@ if(!exact){
 #' @param ci_level Numeric.  Default 0.95. A number between 0 and 1 specifying the level of the confidence interval (when ci=TRUE)
 #' @param ci_level_ME Numeric.  Default 0.95. A number between 0 and 1 specifying the level of the margin of error for the point estimate (only relevant when ci=FALSE and exact=FALSE)
 #' @param weight_vec An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights
+#' @param verbose A logical indicator for whether extended output is produced when ci=TRUE, default TRUE
 #' @return A SAF_summary object with average joint and sequential PAF for all risk factors in node_vec (or alternatively a subset of those risk factors if specified in riskfactor_vec).
 #' @export
 #'
@@ -350,7 +351,7 @@ if(!exact){
 #'  print(out)
 #'  plot(out,max_PAF=0.5,min_PAF=-0.1,number_rows=3)
 #' }
-average_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, exact=TRUE, nperm=NULL, correct_order=2, riskfactor_vec=NULL,ci=FALSE,boot_rep=50, ci_type=c("norm"),ci_level=0.95, ci_level_ME=0.95,weight_vec=NULL){
+average_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, exact=TRUE, nperm=NULL, correct_order=2, riskfactor_vec=NULL,ci=FALSE,boot_rep=50, ci_type=c("norm"),ci_level=0.95, ci_level_ME=0.95,weight_vec=NULL, verbose=TRUE){
 
   if(!node_order(parent_list=parent_list,node_vec=node_vec)){
     stop("ancestors must be specified before descendants in node_vec")
@@ -399,9 +400,9 @@ average_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, exac
   res$`risk factor` <- gsub(pattern="Average PAF (.*)",replacement="\\1",x=res$`risk factor`,perl=TRUE)
   res$`risk factor` <- gsub(pattern="Joint",replacement="",x=res$`risk factor`,perl=TRUE)
   #print(res)
-  res <- structure(res,class="SAF_summary")
+  res <- structure(list(verbose=verbose,prev=prev,ci_level=ci_level, ci_type=ci_type,boot_rep=boot_rep,riskfactor_vec=riskfactor_vec,res=res, exact=exact, nperm=nperm, correct_order=correct_order),class="SAF_summary")
   #options(warn = oldw)
-  return(res)
+  res
 
 }
 
@@ -445,9 +446,37 @@ average_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, exac
 #' print(out)
 print.SAF_summary <- function(x,...){
 
-  data_frame <- structure(as.list(x),class="data.frame", row.names=attr(x,"row.names"))
-  print(data_frame)
+  if(ncol(x$res)<7){
 
+    for(i in 1:ncol(x$res)) if(is.numeric(x$res[,i])) x$res[,i] <- signif(x$res[,i],3)
+
+    print(x$res)
+  }
+  if(ncol(x$res)==7){
+  d_frame_new <- x$res[,1:3]
+  d_frame_new$CI <- paste("(",signif(x$res[,6],3),",",signif(x$res[,7],3),")",sep="")
+  print(d_frame_new)
+
+  if(x$verbose){
+    cat("\n")
+
+  cat(paste("Risk factors: ",sep=""))
+  cat(x$riskfactor_vec, sep=", ")
+  cat("\n")
+
+  if(x$exact) cat(paste("Using exact PAF formula", "\n",sep=""))
+  if(!x$exact) cat(paste("Using approximate PAF formula", "\n",sep=""))
+  if(!x$exact) cat(paste("Using ", unique(x$nperm), " permutations", "\n",sep=""))
+  if(!x$exact) cat(paste("Balance over risk factors in first ", unique(x$correct_order), " positions in sampled permutations", "\n",sep=""))
+  cat(paste("Assumed prevalence: ", unique(x$prev), "\n",sep=""))
+
+  cat(paste("Type of Bootstrap confidence interval used: ", x$ci_type, "\n",sep=""))
+
+  cat(paste("Confidence level: ", x$ci_level, "\n",sep=""))
+
+  cat(paste("Number of bootstrap draws: ", x$boot_rep, "\n",sep=""))
+}
+  }
 }
 
 #' Internal:  Simulate from the post intervention distribution corresponding to eliminating a risk factor
@@ -875,7 +904,8 @@ node_order <- function(parent_list, node_vec){
 #' @param ci_level Numeric.  Confidence level.  Default 0.95
 #' @param nsim Numeric.  Number of independent simulations of the dataset.  Default of 1
 #' @param weight_vec An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights
-#' @return A numeric estimate of the joint PAF for all risk factors (if ci=FALSE), or a data frame giving joint PAF and confidence intervals (if ci=TRUE)
+#' @param verbose A logical indicator for whether extended output is produced when ci=TRUE, default TRUE
+#' @return A numeric estimate of the joint PAF for all risk factors (if ci=FALSE), or a jointpaf object giving the same information with confidence intervals (if ci=TRUE)
 #' @export
 #'
 #' @references Ferguson, J., O’Connell, M. and O’Donnell, M., 2020. Revisiting sequential attributable fractions. Archives of Public Health, 78(1), pp.1-9.
@@ -940,7 +970,7 @@ node_order <- function(parent_list, node_vec){
 #' riskfactor_vec = c("high_blood_pressure","smoking","stress","exercise","alcohol",
 #' "diabetes","early_stage_heart_disease"),ci=TRUE,boot_rep=10)
 #' }
-joint_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, riskfactor_vec=NULL,ci=FALSE,boot_rep=50, ci_type=c("norm"),ci_level=0.95,nsim=1,weight_vec=NULL){
+joint_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, riskfactor_vec=NULL,ci=FALSE,boot_rep=50, ci_type=c("norm"),ci_level=0.95,nsim=1,weight_vec=NULL,verbose=TRUE){
   if(!node_order(parent_list=parent_list,node_vec=node_vec)){
     stop("ancestors must be specified before descendants in node_vec")
   }
@@ -957,11 +987,32 @@ if(!ci) return(joint_paf_inner(data=data,ind=1:nrow(data), model_list=model_list
   parallel::clusterExport(cl, c("sim_outnode","do_sim"))
   res <- boot::boot(data=data,statistic=joint_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, riskfactor_vec=riskfactor_vec,nsim=nsim,weight_vec=weight_vec,cl=cl)
   parallel::stopCluster(cl)
-  stuff <- extract_ci(res=res,model_type='glm',ci_level=ci_level,ci_type=ci_type,continuous=TRUE,t_vector=c("joint PAF"))
-  return(stuff)
-
+  out <- extract_ci(res=res,model_type='glm',ci_level=ci_level,ci_type=ci_type,continuous=TRUE,t_vector=c("joint PAF"))
+  out <- structure(list(verbose=verbose,prev=prev,ci_level=ci_level, ci_type=ci_type,boot_rep=boot_rep,riskfactor_vec=riskfactor_vec,jointpaf=out),class="jointpaf")
+  out
 }
 
+#' @export
+print.jointpaf <- function(x,...){
+
+  d_frame_new <- signif(x$jointpaf[,1,drop=FALSE],3)
+  d_frame_new$CI <- paste("(",signif(x$jointpaf[,4],3),",",signif(x$jointpaf[,5],3),")",sep="")
+  print(d_frame_new)
+  if(x$verbose){
+  cat("\n")
+
+  cat(paste("Risk factors: ",sep=""))
+  cat(x$riskfactor_vec)
+  cat("\n")
+  cat(paste("Assumed prevalence: ", unique(x$prev), "\n",sep=""))
+
+  cat(paste("Type of Bootstrap confidence interval used: ", x$ci_type, "\n",sep=""))
+
+  cat(paste("Confidence level: ", x$ci_level, "\n",sep=""))
+
+  cat(paste("Number of bootstrap draws: ", x$boot_rep, "\n",sep=""))
+  }
+}
 
 joint_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=NULL,riskfactor_vec=NULL,nsim=1,weight_vec=NULL){
 
@@ -1019,9 +1070,9 @@ current_mat <- data
 #' @param ci_level Numeric.  Confidence level.  Default 0.95
 #' @param nsim Numeric.  Number of independent simulations of the dataset.  Default of 1
 #' @param weight_vec An optional vector of inverse sampling weights (note with survey data, the variance may not be calculated correctly if sampling isn't independent).  Note that this vector will be ignored if prev is specified, and the weights will be calibrated so that the weighted sample prevalence of disease equals prev.  This argument can be ignored if data has a column weights with correctly calibrated weights
-#' @return A numeric estimate of sequential PAF (if ci=FALSE), or else a data frame giving estimates and confidence limits of sequential PAF (if ci=TRUE)
+#' @param verbose A logical indicator for whether extended output is produced when ci=TRUE, default TRUE
+#' @return A numeric estimate of sequential PAF (if ci=FALSE), or else a saf object, giving estimates and confidence limits of sequential PAF (if ci=TRUE)
 #' @export
-#'
 #' @references Ferguson, J., O’Connell, M. and O’Donnell, M., 2020. Revisiting sequential attributable fractions. Archives of Public Health, 78(1), pp.1-9.
 #'
 #' @examples
@@ -1088,7 +1139,7 @@ current_mat <- data
 #' parent_list, node_vec=node_vec, prev=.0035, riskfactor_vec = c("high_blood_pressure",
 #' "smoking","stress"),ci=TRUE,boot_rep=10)
 #' }
-seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, riskfactor_vec=NULL,ci=FALSE,boot_rep=50, ci_type=c("norm"),ci_level=0.95,nsim=1,weight_vec=NULL){
+seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, riskfactor_vec=NULL,ci=FALSE,boot_rep=50, ci_type=c("norm"),ci_level=0.95,nsim=1,weight_vec=NULL,verbose=TRUE){
   if(!node_order(parent_list=parent_list,node_vec=node_vec)){
     stop("ancestors must be specified before descendants in node_vec")
   }
@@ -1107,11 +1158,31 @@ seq_paf <- function(data, model_list, parent_list, node_vec, prev=NULL, riskfact
   parallel::clusterExport(cl, c("sim_outnode","do_sim"))
   res <- boot::boot(data=data,statistic=seq_paf_inner,R=boot_rep,model_list=model_list, parent_list=parent_list, node_vec=node_vec, prev=prev, riskfactor_vec=riskfactor_vec,nsim=nsim,weight_vec=weight_vec,cl=cl)
   parallel::stopCluster(cl)
-  stuff <- extract_ci(res=res,model_type='glm',ci_level=ci_level,ci_type=ci_type,continuous=TRUE,t_vector=c("sequential PAF"))
-  return(stuff)
-
+  out <- extract_ci(res=res,model_type='glm',ci_level=ci_level,ci_type=ci_type,continuous=TRUE,t_vector=c("sequential PAF"))
+  out <- structure(list(verbose=verbose,prev=prev,ci_level=ci_level, ci_type=ci_type,boot_rep=boot_rep,riskfactor_vec=riskfactor_vec,saf=out),class="saf")
+  out
 }
 
+#' @export
+print.saf <- function(x,...){
+
+  d_frame_new <- signif(x$saf[,1,drop=FALSE],3)
+  d_frame_new$CI <- paste("(",signif(x$saf[,4],3),",",signif(x$saf[,5],3),")",sep="")
+  print(d_frame_new)
+if(x$verbose){
+  cat("\n")
+  cat(paste("Risk factors: ",sep=""))
+  cat(x$riskfactor_vec, sep=", ")
+  cat("\n")
+  cat(paste("Assumed prevalence: ", unique(x$prev), "\n",sep=""))
+
+  cat(paste("Type of Bootstrap confidence interval used: ", x$ci_type, "\n",sep=""))
+
+  cat(paste("Confidence level: ", x$ci_level, "\n",sep=""))
+
+  cat(paste("Number of bootstrap draws: ", x$boot_rep, "\n",sep=""))
+  }
+}
 
 seq_paf_inner <- function(data, ind, model_list, parent_list, node_vec, prev=NULL,riskfactor_vec=NULL,nsim=1,weight_vec=NULL){
 

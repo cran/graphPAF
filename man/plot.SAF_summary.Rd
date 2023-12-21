@@ -4,7 +4,17 @@
 \alias{plot.SAF_summary}
 \title{Produce plots of sequential and average PAF}
 \usage{
-\method{plot}{SAF_summary}(x, number_rows = 3, max_PAF = 0.4, min_PAF = 0, ...)
+\method{plot}{SAF_summary}(
+  x,
+  number_rows = 3,
+  max_PAF = 0.4,
+  min_PAF = 0,
+  point.size = 4,
+  axis.text.size = 6,
+  title.size = 6,
+  axis.title.size = 6,
+  ...
+)
 }
 \arguments{
 \item{x}{An SAF_summary R object produced by running the average_paf function.}
@@ -14,6 +24,14 @@
 \item{max_PAF}{upper limit of y axis on PAF plots (default = 0.4)}
 
 \item{min_PAF}{lower limit of y axis on PAF plots (default = 0)}
+
+\item{point.size}{size of points on each individual plot (default=4)}
+
+\item{axis.text.size}{size of axis labels on each plot (default=6)}
+
+\item{title.size}{size of title on each individual plot (default=6)}
+
+\item{axis.title.size}{size of titles on each plot (default=6)}
 
 \item{...}{Other global arguments inherited by that might be passed to the ggplot routine}
 }

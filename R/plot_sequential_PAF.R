@@ -4,6 +4,10 @@
 #' @param number_rows integer How many rows of plots will be included on the associated figure.
 #' @param max_PAF upper limit of y axis on PAF plots (default = 0.4)
 #' @param min_PAF lower limit of y axis on PAF plots (default = 0)
+#' @param point.size size of points on each individual plot (default=4)
+#' @param title.size size of title on each individual plot (default=6)
+#' @param axis.text.size size of axis labels on each plot (default=6)
+#' @param axis.title.size size of titles on each plot (default=6)
 #' @param ... Other global arguments inherited by that might be passed to the ggplot routine
 #' @return A ggplot2 plotting object illustrating average sequential PAF by position and average PAF by risk factor.
 #'
@@ -52,10 +56,10 @@
 #' riskfactor_vec = c("urban.rural","occupational.exposure"),ci=FALSE,exact=FALSE)
 #' plot(out)
 #' }
-plot.SAF_summary <- function(x,number_rows=3, max_PAF=0.4,min_PAF=0,...){
+plot.SAF_summary <- function(x,number_rows=3, max_PAF=0.4,min_PAF=0,point.size=4,axis.text.size=6,title.size=6,axis.title.size=6,...){
   #defaultW <- getOption("warn")
   #options(warn = -1)
-  SAF_summary <- x
+  SAF_summary <- x$res
   SAF_summary <- structure(as.list(SAF_summary),class="data.frame", row.names=attr(SAF_summary,"row.names"))
 
   riskfactors <- unique(SAF_summary$`risk factor`)
@@ -79,7 +83,7 @@ plot.SAF_summary <- function(x,number_rows=3, max_PAF=0.4,min_PAF=0,...){
      data_average$UB <- SAF_summary[intersect(grep(pattern=paste("Average"),x=SAF_summary$position),grep(pattern=riskfactors[i],x=SAF_summary$`risk factor`)),N]
      data_average$type <- "Average"
      data_i <- rbind(data_i, data_average)
-     p_i <- ggplot2::ggplot(data=data_i, ggplot2::aes(x=position, y=value,  colour=type)) + ggplot2::theme_classic()+ ggplot2::geom_point(,size=4)+ggplot2::geom_ribbon(ggplot2::aes(ymin = LB, ymax = UB, fill=type),alpha=0.2,width= 0.5)+ ggplot2::scale_x_continuous("position",breaks=1:nrow(data_i))+ggplot2::scale_y_continuous("Sequential PAF",limits=c(min_PAF,max_PAF))+ ggplot2::theme(legend.position = "none")+ ggplot2::annotate(geom="text", x = quantile(data_i$position,.5), y = max_PAF, label=riskfactors[i],color="black",size=5)
+     p_i <- ggplot2::ggplot(data=data_i, ggplot2::aes(x=position, y=value,  colour=type)) + ggplot2::theme_classic()+ ggplot2::geom_point(,size=point.size)+ggplot2::geom_ribbon(ggplot2::aes(ymin = LB, ymax = UB, fill=type),alpha=0.2)+ ggplot2::scale_x_continuous("position",breaks=1:nrow(data_i))+ggplot2::scale_y_continuous("Sequential PAF",limits=c(min_PAF,max_PAF))+ ggplot2::theme(legend.position = "none")+ ggplot2::annotate(geom="text", x = quantile(data_i$position,.5), y = max_PAF, label=riskfactors[i],color="black",size=title.size)+ ggplot2::theme(axis.title.x = ggplot2::element_text(size = axis.title.size,color = "black"),axis.title.y = ggplot2::element_text(size = axis.title.size,color = "black")) + ggplot2::theme(axis.text.x = ggplot2::element_text(color = "black",size = axis.text.size),axis.text.y = ggplot2::element_text(color = "black",size = axis.text.size,hjust = 1))
      eval(parse(text=paste0("p",i,"<- p_i")))
   }
   thetext <- paste0("gridExtra::grid.arrange(p1")
@@ -92,7 +96,7 @@ plot.SAF_summary <- function(x,number_rows=3, max_PAF=0.4,min_PAF=0,...){
           data_elim <- SAF_summary[grep(pattern=paste("elimination position"),x=SAF_summary$position),]
       colnames(data_elim)[N] <- c("value")
       data_elim$position <- as.numeric(gsub(pattern="elimination position (.*)",replacement="\\1",data_elim$position))
-      p_i <- ggplot2::ggplot(data=data_elim, ggplot2::aes(x=position,y=value,color=`risk factor`))+ ggplot2::theme_classic()+ggplot2::geom_line(ggplot2::aes(color=`risk factor`))+ ggplot2::scale_x_continuous("position",breaks=1:nrow(data_elim))+ggplot2::scale_y_continuous("Sequential PAF",limits=c(min_PAF,max_PAF))+ggplot2::labs(title="Sequential PAF")+ ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+      p_i <- ggplot2::ggplot(data=data_elim, ggplot2::aes(x=position,y=value,color=`risk factor`),size=point.size)+ ggplot2::theme_classic()+ggplot2::geom_line(ggplot2::aes(color=`risk factor`))+ ggplot2::scale_x_continuous("position",breaks=1:nrow(data_elim))+ggplot2::scale_y_continuous("Sequential PAF",limits=c(min_PAF,max_PAF))+ggplot2::labs(title="Sequential PAF")+ ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5,size=title.size)+ ggplot2::theme(axis.title.x = ggplot2::element_text(size = axis.title.size,color = "black")),axis.title.y = ggplot2::element_text(size = axis.title.size,color = "black")) + ggplot2::theme(axis.text.x = ggplot2::element_text(color = "black",size = axis.text.size),axis.text.y = ggplot2::element_text(color = "black",size = axis.text.size,hjust = 1))
       p_i
 
   }

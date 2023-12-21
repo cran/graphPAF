@@ -22,16 +22,21 @@ A rf.data.frame object
 Create a rf.data.frame object for risk factors, prevalence and risk ratios.  This will be used in fan plots and nomograms (by simply sending the rf.dat.frame object to plot)
 }
 \examples{
+library(ggplot2)
 rfs <- rf_summary(rf_names=c('Hypertension','Inactivity','ApoB/ApoA','Diet',
 'WHR','Smoking','Cardiac causes','Alcohol','Global Stress','Diabetes'),
 rf_prev=c(.474,.837,.669,.67,.67,.224,.049,.277,.144,.129),
 risk=c(1.093,0.501,0.428,0.378,0.294,0.513,1.156,0.186,0.301,0.148),log=TRUE)
 # fanplot
-plot(rfs,type="f")
+plot(rfs,fan.point.size=4,fan.label.size=4,
+fan.legend.text.size=10,fan.legend.title.size=10,
+fan.axis.text.size=10,fan.axis.title.size=10)
 # nomogram
-plot(rfs,type="n")
+plot(rfs,nomogram.label.size=6,
+nomogram.axis.text.size=6, type="n")
 # reverse nomogram
-# plot(rfs,type="rn")
+plot(rfs,nomogram.label.size=6,
+nomogram.axis.text.size=6, type="rn")
 }
 \references{
 Ferguson, J., O’Leary, N., Maturo, F., Yusuf, S. and O’Donnell, M., 2019. Graphical comparisons of relative disease burden across multiple risk factors. BMC medical research methodology, 19(1), pp.1-9.
